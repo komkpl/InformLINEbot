@@ -1,0 +1,118 @@
+name: Send LINE Message Every 2 Weeks
+
+on:
+  schedule:
+    # JST 7:00 = UTC 22:00 every Tuesday
+    - cron: "0 22 * * 2"
+  workflow_dispatch:
+
+jobs:
+  send_line_message:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Skip if not even week
+        run: |
+          WEEK=$(date +%V)
+          echo "Current week: $WEEK"
+          if [ $((WEEK % 2)) -ne 0 ]; then
+            echo "Not even week → Skip"
+            exit 0
+          fi
+
+      # -------------------------
+      # ★ ローテ前の名前を取得
+      # -------------------------
+      - name: Get previous and current names (before rotation)
+        id: names_before
+        run: |
+          CURRENT=$(head -n 1 rotate_names.txt)
+          PREVIOUS=$(tail -n 1 rotate_names.txt)
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
+
+      # -------------------------
+      # ★ ローテーション処理
+      # -------------------------
+      - name: Rotate name list
+        run: |
+          FIRST=$(head -n 1 rotate_names.txt)
+          tail -n +2 rotate_names.txt > rotate_tmp.txt
+          echo "$FIRST" >> rotate_tmp.txt
+          mv rotate_tmp.txt rotate_names.txt
+
+      - name: Save rotated list
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-rotate name list"
+          file_pattern: rotate_names.txt
+
+      # -------------------------
+      # ★ 日付レンジ + 曜日の生成
+      # -------------------------
+      - name: Generate date range string
+        id: daterange
+        run: |
+          # 期間開始日 = 今日 (実行日)
+          START_DATE=$(date +%Y-%m-%d)
+          END_DATE=$(date -d "$START_DATE +13 days" +%Y-%m-%d)
+
+          # 曜日名（日/英）
+          get_jp_weekday() {
+            case "$1" in
+              0) echo "日" ;;
+              1) echo "月" ;;
+              2) echo "火" ;;
+              3) echo "水" ;;
+              4) echo "木" ;;
+              5) echo "金" ;;
+              6) echo "土" ;;
+            esac
+          }
+
+          # 開始日の表記
+          S_MMDD=$(date -d "$START_DATE" +%m/%d)
+          S_WD_NUM=$(date -d "$START_DATE" +%w)
+          S_WD_JP=$(get_jp_weekday $S_WD_NUM)
+
+          # 終了日の表記
+          E_MMDD=$(date -d "$END_DATE" +%m/%d)
+          E_WD_NUM=$(date -d "$END_DATE" +%w)
+          E_WD_JP=$(get_jp_weekday $E_WD_NUM)
+
+          RANGE_JP="${S_MMDD}(${S_WD_JP}) 〜 ${E_MMDD}(${E_WD_JP})"
+
+          echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
+
+      # -------------------------
+      # ★ メッセージ送信
+      # -------------------------
+      - name: Send LINE message (JP + EN with date range)
+        run: |
+          CURRENT="${{ steps.names_before.outputs.current }}"
+          PREVIOUS="${{ steps.names_before.outputs.previous }}"
+          RANGE_JP="${{ steps.daterange.outputs.range_jp }}"
+
+          # 日本語
+          JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
+          JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
+
+          # 英語
+          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
+          EN2="${PREVIOUS}, please make sure all the trash is taken out."
+
+          curl -X POST https://api.line.me/v2/bot/message/push \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.LINE_ACCESS_TOKEN }}" \
+          -d "{
+            \"to\": \"${{ secrets.LINE_GROUP_ID }}\",
+            \"messages\": [
+              {\"type\": \"text\", \"text\": \"${JP1}\"},
+              {\"type\": \"text\", \"text\": \"${EN1}\"},
+              {\"type\": \"text\", \"text\": \"${JP2}\"},
+              {\"type\": \"text\", \"text\": \"${EN2}\"}
+            ]
+          }"
