@@ -18,25 +18,23 @@ jobs:
         with:
           node-version: 20
 
-      - name: Load and rotate names from secret
+      - name: Load names from secret JSON
         id: names
         run: |
-          # Secret の JSON をロード
-          NAMES_JSON='${{ secrets.NAMES_JSON }}'
           echo "Loaded names: $NAMES_JSON"
 
-          # JSON → bash配列へ
-          mapfile -t NAMES < <(echo "$NAMES_JSON" | jq -r '.[]')
+          # jq が使えるか確認
+          sudo apt-get update -y
+          sudo apt-get install -y jq
 
-          # 配列要素数
-          COUNT=${#NAMES[@]}
+          # Secret JSON を配列として読み込む
+          echo "$NAMES_JSON" | jq . > names.json
 
-          # 先頭が CURRENT、末尾が PREVIOUS
-          CURRENT="${NAMES[0]}"
-          PREVIOUS="${NAMES[$COUNT-1]}"
+          CURRENT=$(jq -r '.[0]' names.json)
+          PREVIOUS=$(jq -r '.[-1]' names.json)
 
-          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
-          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
 
           # ローテーション処理
           ROTATED=("${NAMES[@]:1}" "${NAMES[0]}")
