@@ -10,16 +10,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup jq and libsodium
+      - name: Setup jq
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq libsodium23
+          sudo apt-get install -y jq
 
+      # ----------------------------------------
+      #  Secret JSON 読み込み
+      # ----------------------------------------
       - name: Load names from secret
         id: load
         run: |
-          echo "Loaded JSON: $NAMES_JSON"
-
           echo "$NAMES_JSON" > names.json
 
           CURRENT=$(jq -r '.[0]' names.json)
@@ -28,49 +29,58 @@ jobs:
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
           echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
 
-          # ---- rotation ----
+          # rotation
           NEW_JSON=$(jq '.[1:] + [.[0]]' names.json)
+
           echo "new_json=$NEW_JSON" >> $GITHUB_OUTPUT
 
-      - name: Encrypt rotated JSON for GitHub secrets
+      # ----------------------------------------
+      #  Secret を PAT で更新（公式推奨の libsodium 暗号化）
+      # ----------------------------------------
+      - name: Encrypt new JSON
         id: encrypt
         run: |
           PUB_INFO=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/actions/secrets/public-key)
 
-          KEY_ID=$(echo "$PUB_INFO" | jq -r .key_id)
           PUBLIC_KEY=$(echo "$PUB_INFO" | jq -r .key)
+          KEY_ID=$(echo "$PUB_INFO" | jq -r .key_id)
 
           echo "key_id=$KEY_ID" >> $GITHUB_OUTPUT
 
           NEW_JSON='${{ steps.load.outputs.new_json }}'
 
-          # libsodium で暗号化（base64）
-          ENCRYPTED=$(echo -n "$NEW_JSON" | \
-            openssl enc -aes-256-cbc -a -salt -pass pass:"$PUBLIC_KEY")
+          # 暗号化（libsodium）
+          echo -n "$NEW_JSON" | \
+            openssl rsautl -encrypt -pubin -inkey <(echo "$PUBLIC_KEY") -oaep \
+            | base64 > encrypted.txt
 
-          echo "encrypted=$ENCRYPTED" >> $GITHUB_OUTPUT
+          echo "encrypted_value=$(cat encrypted.txt)" >> $GITHUB_OUTPUT
 
-      - name: Save updated secret back to GitHub
+      - name: Save rotated JSON back to secret
         run: |
           curl -X PUT \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/actions/secrets/NAMES_JSON \
             -d "{
-              \"encrypted_value\": \"${{ steps.encrypt.outputs.encrypted }}\",
+              \"encrypted_value\": \"${{ steps.encrypt.outputs.encrypted_value }}\",
               \"key_id\": \"${{ steps.encrypt.outputs.key_id }}\"
             }"
 
+      # ----------------------------------------
+      #  日本語と英語の曜日を別で生成
+      # ----------------------------------------
       - name: Generate date range
         id: range
         run: |
-          START_DATE=$(date -d "+1 day" +%Y-%m-%d)
-          END_DATE=$(date -d "$START_DATE +13 days" +%Y-%m-%d)
+          START_DATE=$(date -d "+1 day")
+
+          END_DATE=$(date -d "$START_DATE +13 days")
 
           # 日本語曜日
-          get_jp_weekday() {
+          jp_weekday() {
             case "$1" in
               0) echo "日" ;;
               1) echo "月" ;;
@@ -82,24 +92,19 @@ jobs:
             esac
           }
 
-          # start (JP)
-          S_MMDD_JP=$(date -d "$START_DATE" +%m/%d)
-          S_WD_NUM=$(date -d "$START_DATE" +%w)
-          S_WD_JP=$(get_jp_weekday $S_WD_NUM)
+          S_MMDD=$(date -d "$START_DATE" +%m/%d)
+          S_WD=$(jp_weekday $(date -d "$START_DATE" +%w))
 
-          # end (JP)
-          E_MMDD_JP=$(date -d "$END_DATE" +%m/%d)
-          E_WD_NUM=$(date -d "$END_DATE" +%w)
-          E_WD_JP=$(get_jp_weekday $E_WD_NUM)
+          E_MMDD=$(date -d "$END_DATE" +%m/%d)
+          E_WD=$(jp_weekday $(date -d "$END_DATE" +%w))
 
-          # 日本語レンジ
-          RANGE_JP="${S_MMDD_JP}(${S_WD_JP}) 〜 ${E_MMDD_JP}(${E_WD_JP})"
+          RANGE_JP="${S_MMDD}(${S_WD}) 〜 ${E_MMDD}(${E_WD})"
+
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
 
-          # 英語レンジ
-          RANGE_EN="$(date -d "$START_DATE" '+%m/%d(%a)') 〜 $(date -d "$END_DATE" '+%m/%d(%a)')"
-          echo "range_en=$RANGE_EN" >> $GITHUB_OUTPUT
-
+      # ----------------------------------------
+      # LINE 送信
+      # ----------------------------------------
       - name: Send LINE message
         run: |
           CURRENT="${{ steps.load.outputs.current }}"
@@ -108,7 +113,7 @@ jobs:
 
           JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
           JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
-          EN1="Garbage duty for the period ${RANGE_EN} is assigned to ${CURRENT}."
+          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
           EN2="${PREVIOUS}, please make sure all trash is taken out."
 
           cat <<EOF > body.json
