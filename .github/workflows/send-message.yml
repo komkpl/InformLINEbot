@@ -69,13 +69,36 @@ jobs:
           START_DATE=$(date -d "+1 day" +%Y-%m-%d)
           END_DATE=$(date -d "$START_DATE +13 days" +%Y-%m-%d)
 
-          S_MMDD=$(date -d "$START_DATE" +%m/%d)
-          S_WD=$(date -d "$START_DATE" +"(%a)")
-          E_MMDD=$(date -d "$END_DATE" +%m/%d)
-          E_WD=$(date -d "$END_DATE" +"(%a)")
+          # 日本語曜日
+          get_jp_weekday() {
+            case "$1" in
+              0) echo "日" ;;
+              1) echo "月" ;;
+              2) echo "火" ;;
+              3) echo "水" ;;
+              4) echo "木" ;;
+              5) echo "金" ;;
+              6) echo "土" ;;
+            esac
+          }
 
-          RANGE_JP="$S_MMDD$S_WD 〜 $E_MMDD$E_WD"
+          # start (JP)
+          S_MMDD_JP=$(date -d "$START_DATE" +%m/%d)
+          S_WD_NUM=$(date -d "$START_DATE" +%w)
+          S_WD_JP=$(get_jp_weekday $S_WD_NUM)
+
+          # end (JP)
+          E_MMDD_JP=$(date -d "$END_DATE" +%m/%d)
+          E_WD_NUM=$(date -d "$END_DATE" +%w)
+          E_WD_JP=$(get_jp_weekday $E_WD_NUM)
+
+          # 日本語レンジ
+          RANGE_JP="${S_MMDD_JP}(${S_WD_JP}) 〜 ${E_MMDD_JP}(${E_WD_JP})"
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
+
+          # 英語レンジ
+          RANGE_EN="$(date -d "$START_DATE" '+%m/%d(%a)') 〜 $(date -d "$END_DATE" '+%m/%d(%a)')"
+          echo "range_en=$RANGE_EN" >> $GITHUB_OUTPUT
 
       - name: Send LINE message
         run: |
@@ -85,7 +108,7 @@ jobs:
 
           JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
           JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
-          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
+          EN1="Garbage duty for the period ${RANGE_EN} is assigned to ${CURRENT}."
           EN2="${PREVIOUS}, please make sure all trash is taken out."
 
           cat <<EOF > body.json
