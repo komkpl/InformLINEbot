@@ -3,7 +3,8 @@ name: Send LINE Message Every 2 Weeks
 on:
   schedule:
     # JST 7:00 = UTC 22:00 every Tuesday
-    - cron: "0 22 * * 2"
+    #- cron: "0 22 * * 2"
+    - cron: "*/1 * * * *" # Test用
   workflow_dispatch:
 
 jobs:
