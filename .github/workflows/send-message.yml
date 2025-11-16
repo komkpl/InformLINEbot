@@ -56,8 +56,8 @@ jobs:
       - name: Generate date range string
         id: daterange
         run: |
-          # 期間開始日 = 今日 (実行日)
-          START_DATE=$(date +%Y-%m-%d)
+          # 実行日の翌日（＝水曜日）を開始日とする
+          START_DATE=$(date -d "+1 day" +%Y-%m-%d)
           END_DATE=$(date -d "$START_DATE +13 days" +%Y-%m-%d)
 
           # 曜日名（日/英）
