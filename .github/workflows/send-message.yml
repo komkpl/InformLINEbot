@@ -111,8 +111,8 @@ jobs:
             \"to\": \"${{ secrets.LINE_GROUP_ID }}\",
             \"messages\": [
                 {
-                \"type\": \"text\",
-                \"text\": \"${JP1}\n\n${JP2}\n\n${EN1}\n\n${EN2}\"
+                  \"type\": \"text\",
+                  \"text\": \"${JP1}\\n\\n${JP2}\\n\\n${EN1}\\n\\n${EN2}\"
                 }
             ]
           }"
