@@ -18,36 +18,30 @@ jobs:
         with:
           node-version: 20
 
-      - name: Rotate Names & Send Message
-        env:
-          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
-          NAMES_JSON: ${{ secrets.NAMES_JSON }}
+      - name: Send LINE message (JP + EN with date range)
         run: |
-          echo "Loaded names: $NAMES_JSON"
+          CURRENT="${{ steps.names_before.outputs.current }}"
+          PREVIOUS="${{ steps.names_before.outputs.previous }}"
+          RANGE_JP="${{ steps.daterange.outputs.range_jp }}"
 
-          # 名前リスト(JSON)をパース
-          NAMES=$(echo $NAMES_JSON | jq -c '.')
-          COUNT=$(echo $NAMES_JSON | jq 'length')
+          JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
+          JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
+          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
+          EN2="${PREVIOUS}, please make sure all the trash is taken out."
 
-          # GitHub Actions キャッシュを使って、前回のインデックスを保持する
-          CACHE_FILE="name_index.txt"
-          
-          if [ -f "$CACHE_FILE" ]; then
-            INDEX=$(cat $CACHE_FILE)
-          else
-            INDEX=0
-          fi
+          cat <<EOF > body.json
+          {
+            "to": "${{ secrets.LINE_GROUP_ID }}",
+            "messages": [
+              {
+                "type": "text",
+                "text": "${JP1}\n\n${JP2}\n\n${EN1}\n\n${EN2}"
+              }
+            ]
+          }
+          EOF
 
-          # 現在の担当者名を取得
-          NAME=$(echo $NAMES | jq -r ".[$INDEX]")
-
-          # 次のインデックスにローテーション
-          NEXT_INDEX=$(( (INDEX + 1) % COUNT ))
-
-          echo "担当者: $NAME"
-          echo $NEXT_INDEX > $CACHE_FILE
-
-          # メッセージ送信
-          curl -X POST https://api.line.me/v2/bot/message/push \\
-            -H "Authorization: Bearer $LINE_TOKEN" \
-            -F "message=今週の担当は ${NAME} さんです！"
+          curl -v -X POST https://api.line.me/v2/bot/message/push \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.LINE_ACCESS_TOKEN }}" \
+            -d @body.json
