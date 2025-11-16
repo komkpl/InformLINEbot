@@ -18,6 +18,45 @@ jobs:
         with:
           node-version: 20
 
+      - name: Load and rotate names from secret
+        id: names
+        run: |
+          # Secret の JSON をロード
+          NAMES_JSON='${{ secrets.NAMES_JSON }}'
+          echo "Loaded names: $NAMES_JSON"
+
+          # JSON → bash配列へ
+          mapfile -t NAMES < <(echo "$NAMES_JSON" | jq -r '.[]')
+
+          # 配列要素数
+          COUNT=${#NAMES[@]}
+
+          # 先頭が CURRENT、末尾が PREVIOUS
+          CURRENT="${NAMES[0]}"
+          PREVIOUS="${NAMES[$COUNT-1]}"
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
+          # ローテーション処理
+          ROTATED=("${NAMES[@]:1}" "${NAMES[0]}")
+
+          # 新しい JSON に戻す
+          NEW_JSON=$(printf '%s\n' "${ROTATED[@]}" | jq -R . | jq -s .)
+
+          echo "new_json=$NEW_JSON" >> "$GITHUB_OUTPUT"
+      - name: Save new rotated names back to secret (via GitHub API)
+        run: |
+          NEW_JSON='${{ steps.names.outputs.new_json }}'
+          echo "$NEW_JSON"
+
+          # GitHub API を使って secret を更新
+          curl -X PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/secrets/NAMES_JSON \
+            -d "{\"encrypted_value\":\"$(echo -n "$NEW_JSON" | base64)\",\"key_id\":\"$(curl -s -H \"Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}\" https://api.github.com/repos/${{ github.repository }}/actions/secrets/public-key | jq -r .key_id)\"}"
+      
       - name: Send LINE message (JP + EN with date range)
         run: |
           CURRENT="${{ steps.names_before.outputs.current }}"
