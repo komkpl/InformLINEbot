@@ -3,7 +3,6 @@ name: Send LINE Message Every 2 Weeks
 on:
   schedule:
     - cron: "0 22 * * 2"
-    #- cron: '*/1 * * * *'   # ← テスト用に1分ごと
   workflow_dispatch:
 
 jobs:
