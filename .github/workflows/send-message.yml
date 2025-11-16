@@ -48,6 +48,6 @@ jobs:
           echo $NEXT_INDEX > $CACHE_FILE
 
           # メッセージ送信
-          curl -X POST https://notify-api.line.me/api/notify \
+          curl -X POST https://api.line.me/v2/bot/message/push \\
             -H "Authorization: Bearer $LINE_TOKEN" \
             -F "message=今週の担当は ${NAME} さんです！"
