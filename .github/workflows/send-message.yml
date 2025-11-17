@@ -2,7 +2,7 @@ name: Send LINE Message Every 2 Weeks
 
 on:
   schedule:
-    - cron: "0 22 * * 2"   # JST 水曜 7:00
+    - cron: "0 22 * * 2"   # 毎週火曜 22:00 JST
   workflow_dispatch:
 
 jobs:
@@ -10,93 +10,129 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup jq
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Google API クレデンシャルファイル作成
+      - name: Create Google credentials
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-      
-      - name: Prepare sodium encrypt script
-        run: |
-          cat << 'EOF' > encrypt_with_sodium.sh
-          #!/bin/bash
-          PUBLIC_KEY=$1
-          PLAINTEXT=$(cat)
-          PUB_KEY_BIN=$(echo "$PUBLIC_KEY" | base64 -d)
-          echo -n "$PLAINTEXT" | libsodium-sealed-box --encrypt --public-key "$PUB_KEY_BIN" | base64 -w0
+          cat <<EOF > credentials.json
+          {
+            "type": "service_account",
+            "project_id": "",
+            "private_key_id": "",
+            "private_key": "${GOOGLE_PRIVATE_KEY}",
+            "client_email": "${GOOGLE_SERVICE_ACCOUNT}",
+            "client_id": "",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": ""
+          }
           EOF
-          chmod +x encrypt_with_sodium.sh
 
-      # ----------------------------------------
-      #  Secret JSON 読み込み
-      # ----------------------------------------
-      - name: Load names from secret
-        id: load
+        env:
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+
+      - name: Install Google API client
+        run: npm install googleapis@105
+
+      # -------------------------
+      # スプレッドシートから名前取得
+      # -------------------------
+      - name: Read names from Google Sheets
+        id: sheet
         run: |
-          echo "$NAMES_JSON" > names.json
+          node <<'EOF'
+          const { google } = require("googleapis");
+          const fs = require("fs");
 
-          CURRENT=$(jq -r '.[0]' names.json)
-          PREVIOUS=$(jq -r '.[-1]' names.json)
+          const auth = new google.auth.GoogleAuth({
+            credentials: require("./credentials.json"),
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+          });
 
-          echo "current=$CURRENT" >> $GITHUB_OUTPUT
-          echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
+          const sheets = google.sheets({ version: "v4", auth });
 
-          # rotation
-          NEW_JSON=$(jq '.[1:] + [.[0]]' names.json)
+          async function main() {
+            const res = await sheets.spreadsheets.values.get({
+              spreadsheetId: process.env.SHEET_ID,
+              range: "A:A",         // A列に名前が入っていると仮定
+            });
 
-          echo "new_json=$NEW_JSON" >> $GITHUB_OUTPUT
+            const names = res.data.values.flat();
+            console.log("Names:", names);
 
-      # ----------------------------------------
-      #  Secret を PAT で更新（公式推奨の libsodium 暗号化）
-      # ----------------------------------------
-      - name: Encrypt new JSON
-        id: encrypt
+            // 先頭が current、末尾が previous
+            const current = names[0];
+            const previous = names[names.length - 1];
+
+            console.log(`current=${current}`);
+            console.log(`previous=${previous}`);
+
+            // GitHub Actions に渡す
+            console.log(`::set-output name=current::${current}`);
+            console.log(`::set-output name=previous::${previous}`);
+
+            // ローテーション
+            const rotated = [...names.slice(1), names[0]];
+
+            fs.writeFileSync("rotated.json", JSON.stringify(rotated));
+          }
+
+          main();
+          EOF
+        env:
+          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+
+      # -------------------------
+      # スプレッドシートに書き戻し（ローテーション結果）
+      # -------------------------
+      - name: Update Google Sheets (rotate)
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y libsodium-dev
+          node <<'EOF'
+          const { google } = require("googleapis");
+          const rotated = require("./rotated.json");
 
-          PUB_INFO=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/secrets/public-key)
+          const auth = new google.auth.GoogleAuth({
+            credentials: require("./credentials.json"),
+            scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+          });
 
-          PUBLIC_KEY=$(echo "$PUB_INFO" | jq -r .key)
-          KEY_ID=$(echo "$PUB_INFO" | jq -r .key_id)
+          const sheets = google.sheets({ version: "v4", auth });
 
-          echo "key_id=$KEY_ID" >> $GITHUB_OUTPUT
+          async function main() {
+            await sheets.spreadsheets.values.update({
+              spreadsheetId: process.env.SHEET_ID,
+              range: "A1",
+              valueInputOption: "RAW",
+              requestBody: {
+                values: rotated.map(n => [n]),
+              },
+            });
 
-          NEW_JSON='${{ steps.load.outputs.new_json }}'
+            console.log("Spreadsheet updated.");
+          }
+          main();
+          EOF
+        env:
+          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
 
-          # base64 decode → libsodium の sealed box で暗号化 → base64 エンコード
-          echo -n "$NEW_JSON" | \
-            openssl base64 -d 2>/dev/null || true
-
-          # 暗号化（libsodium sealed box）
-          ENCRYPTED=$(echo -n "$NEW_JSON" | \
-            ./encrypt_with_sodium.sh "$PUBLIC_KEY")
-
-          echo "encrypted_value=$ENCRYPTED" >> $GITHUB_OUTPUT
-
-      - name: Save rotated JSON back to secret
-        run: |
-          curl -X PUT \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/secrets/NAMES_JSON \
-            -d "{
-              \"encrypted_value\": \"${{ steps.encrypt.outputs.encrypted_value }}\",
-              \"key_id\": \"${{ steps.encrypt.outputs.key_id }}\"
-            }"
-
-      # ----------------------------------------
-      #  日本語と英語の曜日を別で生成
-      # ----------------------------------------
+      # -------------------------
+      # 日付範囲の生成
+      # -------------------------
       - name: Generate date range
         id: range
         run: |
           START_DATE=$(date -d "+1 day")
-
           END_DATE=$(date -d "$START_DATE +13 days")
 
-          # 日本語曜日
           jp_weekday() {
             case "$1" in
               0) echo "日" ;;
@@ -119,33 +155,14 @@ jobs:
 
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
 
-      - name: Fix previous name if null
-        id: fixname
+      # -------------------------
+      # LINEに送信
+      # -------------------------
+      - name: Send LINE message
         run: |
-          echo "$NAMES_JSON" | jq . > names.json
-
-          LAST=$(jq -r '.[-1]' names.json)
-
-          # previousがnullならLASTに置き換える
-          PREV="${{ steps.names_before.outputs.previous }}"
-          if [ "$PREV" = "null" ] || [ -z "$PREV" ]; then
-            PREV="$LAST"
-          fi
-
-          echo "fixed_previous=$PREV" >> $GITHUB_OUTPUT
-      # ----------------------------------------
-      # LINE 送信
-      # ----------------------------------------
-      - name: Send LINE message (JP + EN with date range)
-        run: |
-          CURRENT="${{ steps.names_before.outputs.current }}"
-          PREVIOUS="${{ steps.fixname.outputs.fixed_previous }}"
-          RANGE_JP="${{ steps.daterange.outputs.range_jp }}"
-
-          JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
-          JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
-          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
-          EN2="${PREVIOUS}, please make sure all the trash is taken out."
+          CURRENT="${{ steps.sheet.outputs.current }}"
+          PREVIOUS="${{ steps.sheet.outputs.previous }}"
+          RANGE_JP="${{ steps.range.outputs.range_jp }}"
 
           cat <<EOF > body.json
           {
@@ -153,13 +170,13 @@ jobs:
             "messages": [
               {
                 "type": "text",
-                "text": "${JP1}\n\n${JP2}\n\n${EN1}\n\n${EN2}"
+                "text": "${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！\n\n${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
               }
             ]
           }
           EOF
 
-          curl -v -X POST https://api.line.me/v2/bot/message/push \
+          curl -X POST https://api.line.me/v2/bot/message/push \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.LINE_ACCESS_TOKEN }}" \
             -d @body.json
