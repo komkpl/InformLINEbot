@@ -15,7 +15,7 @@ jobs:
 
       - name: Skip unless biweekly from 2025-11-25
         run: |
-          START_DATE="2025-11-25"
+          START_DATE="2025-11-24"
 
           # 今日の日付（UTC）
           TODAY=$(date -u +"%Y-%m-%d")
