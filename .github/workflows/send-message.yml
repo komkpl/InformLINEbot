@@ -14,6 +14,17 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
+      
+      - name: Prepare sodium encrypt script
+        run: |
+          cat << 'EOF' > encrypt_with_sodium.sh
+          #!/bin/bash
+          PUBLIC_KEY=$1
+          PLAINTEXT=$(cat)
+          PUB_KEY_BIN=$(echo "$PUBLIC_KEY" | base64 -d)
+          echo -n "$PLAINTEXT" | libsodium-sealed-box --encrypt --public-key "$PUB_KEY_BIN" | base64 -w0
+          EOF
+          chmod +x encrypt_with_sodium.sh
 
       # ----------------------------------------
       #  Secret JSON 読み込み
@@ -40,6 +51,9 @@ jobs:
       - name: Encrypt new JSON
         id: encrypt
         run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libsodium-dev
+
           PUB_INFO=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.PAT_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/actions/secrets/public-key)
@@ -51,12 +65,15 @@ jobs:
 
           NEW_JSON='${{ steps.load.outputs.new_json }}'
 
-          # 暗号化（libsodium）
+          # base64 decode → libsodium の sealed box で暗号化 → base64 エンコード
           echo -n "$NEW_JSON" | \
-            openssl rsautl -encrypt -pubin -inkey <(echo "$PUBLIC_KEY") -oaep \
-            | base64 > encrypted.txt
+            openssl base64 -d 2>/dev/null || true
 
-          echo "encrypted_value=$(cat encrypted.txt)" >> $GITHUB_OUTPUT
+          # 暗号化（libsodium sealed box）
+          ENCRYPTED=$(echo -n "$NEW_JSON" | \
+            ./encrypt_with_sodium.sh "$PUBLIC_KEY")
+
+          echo "encrypted_value=$ENCRYPTED" >> $GITHUB_OUTPUT
 
       - name: Save rotated JSON back to secret
         run: |
