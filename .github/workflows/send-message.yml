@@ -115,6 +115,7 @@ jobs:
           START_DATE=$(date -d "+1 day")
           END_DATE=$(date -d "$START_DATE +13 days")
 
+          # 日本語曜日
           jp_weekday() {
             case "$1" in
               0) echo "日" ;;
@@ -127,15 +128,32 @@ jobs:
             esac
           }
 
+          # 英語曜日
+          en_weekday() {
+            case "$1" in
+              0) echo "Sun" ;;
+              1) echo "Mon" ;;
+              2) echo "Tue" ;;
+              3) echo "Wed" ;;
+              4) echo "Thu" ;;
+              5) echo "Fri" ;;
+              6) echo "Sat" ;;
+            esac
+          }
+
           S_MMDD=$(date -d "$START_DATE" +%m/%d)
-          S_WD=$(jp_weekday $(date -d "$START_DATE" +%w))
+          S_WD_JP=$(jp_weekday $(date -d "$START_DATE" +%w))
+          S_WD_EN=$(en_weekday $(date -d "$START_DATE" +%w))
 
           E_MMDD=$(date -d "$END_DATE" +%m/%d)
-          E_WD=$(jp_weekday $(date -d "$END_DATE" +%w))
+          E_WD_JP=$(jp_weekday $(date -d "$END_DATE" +%w))
+          E_WD_EN=$(en_weekday $(date -d "$END_DATE" +%w))
 
-          RANGE_JP="${S_MMDD}(${S_WD}) 〜 ${E_MMDD}(${E_WD})"
+          RANGE_JP="${S_MMDD}(${S_WD_JP}) 〜 ${E_MMDD}(${E_WD_JP})"
+          RANGE_EN="${S_MMDD}(${S_WD_EN}) - ${E_MMDD}(${E_WD_EN})"
 
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
+          echo "range_en=$RANGE_EN" >> $GITHUB_OUTPUT
 
       # -------------------------
       # LINE メッセージ送信
@@ -146,13 +164,19 @@ jobs:
           PREVIOUS="${{ steps.sheet.outputs.previous }}"
           RANGE_JP="${{ steps.range.outputs.range_jp }}"
 
+          JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
+          JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
+
+          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
+          EN2="${PREVIOUS}, please make sure all trash is taken out."
+
           cat <<EOF > body.json
           {
             "to": "${{ secrets.LINE_GROUP_ID }}",
             "messages": [
               {
                 "type": "text",
-                "text": "${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！\n\n${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
+                "text": "${JP1}\n\n${JP2}\n\n${EN1}\n\n${EN2}"
               }
             ]
           }
