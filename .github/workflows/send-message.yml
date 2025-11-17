@@ -119,19 +119,33 @@ jobs:
 
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
 
+            - name: Fix previous name if null
+          id: fixname
+          run: |
+            echo "$NAMES_JSON" | jq . > names.json
+
+            LAST=$(jq -r '.[-1]' names.json)
+
+            # previousがnullならLASTに置き換える
+            PREV="${{ steps.names_before.outputs.previous }}"
+            if [ "$PREV" = "null" ] || [ -z "$PREV" ]; then
+              PREV="$LAST"
+            fi
+
+            echo "fixed_previous=$PREV" >> $GITHUB_OUTPUT
       # ----------------------------------------
       # LINE 送信
       # ----------------------------------------
-      - name: Send LINE message
+            - name: Send LINE message (JP + EN with date range)
         run: |
-          CURRENT="${{ steps.load.outputs.current }}"
-          PREVIOUS="${{ steps.load.outputs.previous }}"
-          RANGE_JP="${{ steps.range.outputs.range_jp }}"
+          CURRENT="${{ steps.names_before.outputs.current }}"
+          PREVIOUS="${{ steps.fixname.outputs.fixed_previous }}"
+          RANGE_JP="${{ steps.daterange.outputs.range_jp }}"
 
           JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
           JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
           EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
-          EN2="${PREVIOUS}, please make sure all trash is taken out."
+          EN2="${PREVIOUS}, please make sure all the trash is taken out."
 
           cat <<EOF > body.json
           {
@@ -145,7 +159,7 @@ jobs:
           }
           EOF
 
-          curl -X POST https://api.line.me/v2/bot/message/push \
+          curl -v -X POST https://api.line.me/v2/bot/message/push \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer ${{ secrets.LINE_ACCESS_TOKEN }}" \
             -d @body.json
