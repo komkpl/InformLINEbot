@@ -18,27 +18,14 @@ jobs:
         with:
           node-version: 20
 
-      # Google API クレデンシャルファイル作成
-      - name: Create Google credentials
+      # -------------------------
+      # Google credentials.json を作る
+      # -------------------------
+      - name: Create Google credentials.json
         run: |
-          cat <<EOF > credentials.json
-          {
-            "type": "service_account",
-            "project_id": "",
-            "private_key_id": "",
-            "private_key": "${GOOGLE_PRIVATE_KEY}",
-            "client_email": "${GOOGLE_SERVICE_ACCOUNT}",
-            "client_id": "",
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": ""
-          }
-          EOF
-
+          echo "${GOOGLE_CREDENTIALS}" > credentials.json
         env:
-          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
-          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
       - name: Install Google API client
         run: npm install googleapis@105
@@ -53,8 +40,9 @@ jobs:
           const { google } = require("googleapis");
           const fs = require("fs");
 
+          //  credentials.json を読み込み
           const auth = new google.auth.GoogleAuth({
-            credentials: require("./credentials.json"),
+            keyFile: "credentials.json",
             scopes: ["https://www.googleapis.com/auth/spreadsheets"],
           });
 
@@ -63,36 +51,30 @@ jobs:
           async function main() {
             const res = await sheets.spreadsheets.values.get({
               spreadsheetId: process.env.SHEET_ID,
-              range: "A:A",         // A列に名前が入っていると仮定
+              range: "A:A",
             });
 
             const names = res.data.values.flat();
             console.log("Names:", names);
 
-            // 先頭が current、末尾が previous
             const current = names[0];
             const previous = names[names.length - 1];
 
-            console.log(`current=${current}`);
-            console.log(`previous=${previous}`);
-
-            // GitHub Actions に渡す
             console.log(`::set-output name=current::${current}`);
             console.log(`::set-output name=previous::${previous}`);
 
-            // ローテーション
+            // rotate
             const rotated = [...names.slice(1), names[0]];
-
             fs.writeFileSync("rotated.json", JSON.stringify(rotated));
           }
 
           main();
           EOF
         env:
-          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
 
       # -------------------------
-      # スプレッドシートに書き戻し（ローテーション結果）
+      # スプレッドシートに書き戻し
       # -------------------------
       - name: Update Google Sheets (rotate)
         run: |
@@ -101,7 +83,7 @@ jobs:
           const rotated = require("./rotated.json");
 
           const auth = new google.auth.GoogleAuth({
-            credentials: require("./credentials.json"),
+            keyFile: "credentials.json",
             scopes: ["https://www.googleapis.com/auth/spreadsheets"],
           });
 
@@ -122,7 +104,7 @@ jobs:
           main();
           EOF
         env:
-          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
 
       # -------------------------
       # 日付範囲の生成
@@ -156,7 +138,7 @@ jobs:
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
 
       # -------------------------
-      # LINEに送信
+      # LINE メッセージ送信
       # -------------------------
       - name: Send LINE message
         run: |
