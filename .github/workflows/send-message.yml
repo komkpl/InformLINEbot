@@ -119,20 +119,20 @@ jobs:
 
           echo "range_jp=$RANGE_JP" >> $GITHUB_OUTPUT
 
-            - name: Fix previous name if null
-          id: fixname
-          run: |
-            echo "$NAMES_JSON" | jq . > names.json
+      - name: Fix previous name if null
+        id: fixname
+        run: |
+          echo "$NAMES_JSON" | jq . > names.json
 
-            LAST=$(jq -r '.[-1]' names.json)
+          LAST=$(jq -r '.[-1]' names.json)
 
-            # previousがnullならLASTに置き換える
-            PREV="${{ steps.names_before.outputs.previous }}"
-            if [ "$PREV" = "null" ] || [ -z "$PREV" ]; then
-              PREV="$LAST"
-            fi
+          # previousがnullならLASTに置き換える
+          PREV="${{ steps.names_before.outputs.previous }}"
+          if [ "$PREV" = "null" ] || [ -z "$PREV" ]; then
+            PREV="$LAST"
+          fi
 
-            echo "fixed_previous=$PREV" >> $GITHUB_OUTPUT
+          echo "fixed_previous=$PREV" >> $GITHUB_OUTPUT
       # ----------------------------------------
       # LINE 送信
       # ----------------------------------------
