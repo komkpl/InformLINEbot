@@ -2,7 +2,7 @@ name: Send LINE Message Every 2 Weeks
 
 on:
   schedule:
-    - cron: "0 22 * * 2"   # 毎週火曜 22:00 JST
+    - cron: "0 22 * * 2"   # 毎週火曜 22:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -13,6 +13,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Skip unless biweekly from 2025-11-26
+        run: |
+          START_DATE="2025-11-26"
+
+          # 今日の日付（UTC）
+          TODAY=$(date -u +"%Y-%m-%d")
+
+          # START_DATE と TODAY の日数差
+          DIFF=$(( ( $(date -d "$TODAY" +%s) - $(date -d "$START_DATE" +%s) ) / 86400 ))
+
+          # 14日周期（隔週）で実行する
+          if [ $((DIFF % 14)) -ne 0 ]; then
+            echo "Not the scheduled biweekly run. Skipping job."
+            exit 0
+          fi
+
+          echo "This is the correct biweekly run. Continuing..."
+      
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
