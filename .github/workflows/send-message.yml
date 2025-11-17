@@ -167,7 +167,7 @@ jobs:
           JP1="${RANGE_JP} のゴミ捨て当番は ${CURRENT} さんです！"
           JP2="${PREVIOUS} さんは、すべてのゴミを出しておいてください！"
 
-          EN1="Garbage duty for the period ${RANGE_JP} is assigned to ${CURRENT}."
+          EN1="Garbage duty for the period ${RANGE_EN} is assigned to ${CURRENT}."
           EN2="${PREVIOUS}, please make sure all trash is taken out."
 
           cat <<EOF > body.json
