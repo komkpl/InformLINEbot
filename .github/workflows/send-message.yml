@@ -2,7 +2,7 @@ name: Send LINE Message Every 2 Weeks
 
 on:
   schedule:
-    - cron: "0 22 * * 2"   # 毎週火曜 22:00 UTC
+    - cron: "0 22 * * 1"   # 毎週月曜 22:00 UTC (+9hrs for JST)
   workflow_dispatch:
 
 jobs:
@@ -13,9 +13,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Skip unless biweekly from 2025-11-26
+      - name: Skip unless biweekly from 2025-11-25
         run: |
-          START_DATE="2025-11-26"
+          START_DATE="2025-11-25"
 
           # 今日の日付（UTC）
           TODAY=$(date -u +"%Y-%m-%d")
