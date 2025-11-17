@@ -136,7 +136,7 @@ jobs:
       # ----------------------------------------
       # LINE 送信
       # ----------------------------------------
-            - name: Send LINE message (JP + EN with date range)
+      - name: Send LINE message (JP + EN with date range)
         run: |
           CURRENT="${{ steps.names_before.outputs.current }}"
           PREVIOUS="${{ steps.fixname.outputs.fixed_previous }}"
