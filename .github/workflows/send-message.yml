@@ -6,6 +6,11 @@ on:
     # at Monday 22:00 UTC (day-of-week 0).
     - cron: "0 22 * * 1"   # 毎週火曜 07:00 JST
   workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Set to true to force the workflow to run (for testing).'
+        required: false
+        default: 'false'
 
 jobs:
   send_message:
@@ -17,6 +22,8 @@ jobs:
 
       - name: Skip unless biweekly from 2025-11-25
         id: skip
+        env:
+          FORCE_RUN: ${{ github.event.inputs.force_run }}
         run: |
           # Base date for the biweekly schedule (the first day of the cycle) in JST
           START_DATE="2025-11-25"
@@ -25,6 +32,13 @@ jobs:
           # START_TS/TODAY_TS are epoch seconds in Asia/Tokyo timezone
           START_TS=$(TZ=Asia/Tokyo date -d "$START_DATE" +%s)
           TODAY_TS=$(TZ=Asia/Tokyo date +%s)
+
+          # If workflow_dispatch provided force_run=true, bypass the schedule check
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            echo "run_biweekly=true" >> $GITHUB_OUTPUT
+            echo "Force run requested (workflow_dispatch). Continuing..."
+            exit 0
+          fi
 
           # START_DATE と TODAY の日数差（秒差を日数に変換）
           DIFF=$(( (TODAY_TS - START_TS) / 86400 ))
