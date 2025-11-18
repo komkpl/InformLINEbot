@@ -14,24 +14,30 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Skip unless biweekly from 2025-11-25
+        id: skip
         run: |
-          START_DATE="2025-11-24"
+          # Base date for the biweekly schedule (the first day of the cycle)
+          START_DATE="2025-11-25"
 
           # 今日の日付（UTC）
           TODAY=$(date -u +"%Y-%m-%d")
 
-          # START_DATE と TODAY の日数差
+          # START_DATE と TODAY の日数差（秒差を日数に変換）
           DIFF=$(( ( $(date -d "$TODAY" +%s) - $(date -d "$START_DATE" +%s) ) / 86400 ))
 
-          # 14日周期（隔週）で実行する
-          if [ $((DIFF % 14)) -ne 0 ]; then
-            echo "Not the scheduled biweekly run. Skipping job."
-            exit 0
-          fi
+          # 正しい負数対応の 14 での剰余（POSIX 算術は負の剰余を返すことがあるため調整）
+          MOD=$(( (DIFF % 14 + 14) % 14 ))
 
-          echo "This is the correct biweekly run. Continuing..."
+          if [ "$MOD" -ne 0 ]; then
+            echo "run_biweekly=false" >> $GITHUB_OUTPUT
+            echo "Not the scheduled biweekly run. Remaining steps will be skipped."
+          else
+            echo "run_biweekly=true" >> $GITHUB_OUTPUT
+            echo "This is the correct biweekly run. Continuing..."
+          fi
       
       - name: Setup Node
+        if: steps.skip.outputs.run_biweekly == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -40,18 +46,21 @@ jobs:
       # Google credentials.json を作る
       # -------------------------
       - name: Create Google credentials.json
+        if: steps.skip.outputs.run_biweekly == 'true'
         run: |
           echo "${GOOGLE_CREDENTIALS}" > credentials.json
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
       - name: Install Google API client
+        if: steps.skip.outputs.run_biweekly == 'true'
         run: npm install googleapis@105
 
       # -------------------------
       # スプレッドシートから名前取得
       # -------------------------
       - name: Read names from Google Sheets
+        if: steps.skip.outputs.run_biweekly == 'true'
         id: sheet
         run: |
           node <<'EOF'
@@ -95,6 +104,7 @@ jobs:
       # スプレッドシートに書き戻し
       # -------------------------
       - name: Update Google Sheets (rotate)
+        if: steps.skip.outputs.run_biweekly == 'true'
         run: |
           node <<'EOF'
           const { google } = require("googleapis");
@@ -128,6 +138,7 @@ jobs:
       # 日付範囲の生成
       # -------------------------
       - name: Generate date range
+        if: steps.skip.outputs.run_biweekly == 'true'
         id: range
         run: |
           START_DATE=$(date -d "+1 day")
@@ -177,6 +188,7 @@ jobs:
       # LINE メッセージ送信
       # -------------------------
       - name: Send LINE message
+        if: steps.skip.outputs.run_biweekly == 'true'
         run: |
           CURRENT="${{ steps.sheet.outputs.current }}"
           PREVIOUS="${{ steps.sheet.outputs.previous }}"
